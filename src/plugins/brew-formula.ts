@@ -8,11 +8,10 @@ interface BrewFormulaDiff {
 
 const brewFormula: StatefulPluginFactory<string[], BrewFormulaDiff> = (desired) => ({
   name: "Brew Formula",
-  desired,
   current: async () => {
     return (await $`brew ls --installed-on-request --formula`.quiet()).text().trim().split("\n")
   },
-  diff: (_, current, desired) => {
+  diff: (_, current) => {
     const currentSet = new Set(current)
     const desiredSet = new Set(desired)
 

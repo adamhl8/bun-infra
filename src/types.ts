@@ -17,22 +17,42 @@ interface BasePlugin {
   update: (ctx: HostContext) => AsyncOrSync<void>
 }
 
-interface StatelessPlugin<T> extends BasePlugin {
-  value?: T
-  check: (ctx: HostContext, value: T) => AsyncOrSync<boolean>
-  handle: (ctx: HostContext, value: T) => AsyncOrSync<void>
+interface StatelessPlugin extends BasePlugin {
+  check: (ctx: HostContext) => AsyncOrSync<boolean>
+  handle: (ctx: HostContext) => AsyncOrSync<void>
 }
 
 interface StatefulPlugin<T, D> extends BasePlugin {
-  desired: T
   current: (ctx: HostContext) => AsyncOrSync<T>
-  diff: (ctx: HostContext, current: T, desired: T) => AsyncOrSync<D | undefined>
+  diff: (ctx: HostContext, current: T) => AsyncOrSync<D | undefined>
   handle: (ctx: HostContext, diff: D) => AsyncOrSync<void>
 }
 
-type Plugin<T = unknown, D = unknown> = StatelessPlugin<T> | StatefulPlugin<T, D>
+type Plugin<T = unknown, D = unknown> = StatelessPlugin | StatefulPlugin<T, D>
 
-type StatelessPluginFactory<T = undefined> = (value?: T) => StatelessPlugin<T | undefined>
+interface Optional<T> {
+  type: T
+}
+/*
+Case 1: No type argument (T = undefined)
+const plugin1: StatelessPluginFactory = () => ({ ... })
+plugin1() // ✅ OK
+
+Case 2: Optional argument (T = Options | undefined)
+const plugin2: StatelessPluginFactory<Options | undefined> = (options?) => ({ ... })
+plugin2() // ✅ OK
+plugin2({ some: 'option' }) // ✅ OK
+
+Case 3: Required argument (T = Options)
+const plugin3: StatelessPluginFactory<Options> = (options) => ({ ... })
+plugin3() // ❌ Error
+plugin3({ some: 'option' }) // ✅ OK
+*/
+type StatelessPluginFactory<T = undefined> = T extends undefined
+  ? () => StatelessPlugin
+  : T extends Optional<infer U>
+    ? (value?: U) => StatelessPlugin
+    : (value: T) => StatelessPlugin
 type StatefulPluginFactory<T, D> = (desired: T) => StatefulPlugin<T, D>
 
 interface HostConfig {
@@ -43,6 +63,7 @@ interface HostConfig {
 }
 
 export type {
+  Optional,
   HostConfig,
   HostContext,
   Plugin,

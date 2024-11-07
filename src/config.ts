@@ -1,5 +1,6 @@
 import { brewFormula } from "./plugins/brew-formula.ts"
 import { hostname } from "./plugins/hostname.ts"
+import { installFish } from "./plugins/install-fish.ts"
 import { installHomebrew } from "./plugins/install-homebrew.ts"
 import { installRye } from "./plugins/install-rye.ts"
 import type { HostConfig } from "./types.ts"
@@ -54,7 +55,13 @@ const config = {
   },
   macbook: {
     host: "localhost",
-    plugins: [hostname("adam-macbook"), installHomebrew(), brewFormula(brewFormulaList), installRye()],
+    plugins: [
+      hostname("adam-macbook"),
+      installHomebrew(),
+      brewFormula(brewFormulaList),
+      installRye(),
+      installFish({ fishConfigPath: `${process.cwd()}/configs/config.fish` }),
+    ],
   },
 } satisfies Record<string, HostConfig>
 

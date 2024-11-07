@@ -28,13 +28,13 @@ async function main() {
       console.info(`Running "${plugin.name}"`)
 
       if (isStatelessPlugin(plugin)) {
-        if (!(await plugin.check(context, plugin.value))) continue
-        await plugin.handle(context, plugin.value)
+        if (!(await plugin.check(context))) continue
+        await plugin.handle(context)
       }
 
       if (isStatefulPlugin(plugin)) {
         const current = await plugin.current(context)
-        const diff = await plugin.diff(context, current, plugin.desired)
+        const diff = await plugin.diff(context, current)
         if (diff === undefined) {
           console.info("No changes needed")
           continue
@@ -47,12 +47,12 @@ async function main() {
   }
 }
 
-function isStatelessPlugin(plugin: Plugin): plugin is StatelessPlugin<unknown> {
-  return Object.hasOwn(plugin, "value")
+function isStatelessPlugin(plugin: Plugin): plugin is StatelessPlugin {
+  return Object.hasOwn(plugin, "check")
 }
 
 function isStatefulPlugin(plugin: Plugin): plugin is StatefulPlugin<unknown, unknown> {
-  return Object.hasOwn(plugin, "desired")
+  return Object.hasOwn(plugin, "diff")
 }
 
 await main()

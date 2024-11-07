@@ -7,6 +7,9 @@ const installHomebrew: StatelessPluginFactory = () => ({
   handle: async () => {
     await $`/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`
   },
+  update: () => {
+    return
+  },
 })
 
 export { installHomebrew }
