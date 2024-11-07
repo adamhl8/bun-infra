@@ -9,11 +9,11 @@ const hostname: StatefulPluginFactory<string, string> = (desired) => ({
     }
     return ""
   },
-  diff: (_, current) => (current === desired ? undefined : desired),
-  handle: async (ctx, diff) => {
+  change: (_, current) => (current === desired ? undefined : desired),
+  handle: async (ctx, change) => {
     if (ctx.os === "darwin") {
-      await $`sudo scutil --set HostName ${diff}`
-      await $`sudo scutil --set LocalHostName ${diff}`
+      await $`sudo scutil --set HostName ${change}`
+      await $`sudo scutil --set LocalHostName ${change}`
     }
   },
   update: () => {

@@ -14,7 +14,7 @@ type AsyncOrSync<T> = Promise<T> | T
 
 interface BasePlugin {
   name: string
-  update: (ctx: HostContext) => AsyncOrSync<void>
+  update?: (ctx: HostContext) => AsyncOrSync<void>
 }
 
 interface StatelessPlugin extends BasePlugin {
@@ -24,8 +24,8 @@ interface StatelessPlugin extends BasePlugin {
 
 interface StatefulPlugin<T, D> extends BasePlugin {
   current: (ctx: HostContext) => AsyncOrSync<T>
-  diff: (ctx: HostContext, current: T) => AsyncOrSync<D | undefined>
-  handle: (ctx: HostContext, diff: D) => AsyncOrSync<void>
+  change: (ctx: HostContext, current: T) => AsyncOrSync<D | undefined>
+  handle: (ctx: HostContext, change: D) => AsyncOrSync<void>
 }
 
 type Plugin<T = unknown, D = unknown> = StatelessPlugin | StatefulPlugin<T, D>
