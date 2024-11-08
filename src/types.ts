@@ -1,74 +1,34 @@
-interface HostContext {
-  host: string
-  user: string
-  arch: string
-  os: string
-}
+import * as v from "valibot"
+import { type Plugin, PluginSchema } from "./plugin.ts"
 
-type AsyncOrSync<T> = Promise<T> | T
+const HostContextSchema = v.strictObject({
+  host: v.string(),
+  user: v.string(),
+  arch: v.string(),
+  os: v.string(),
+})
+type HostContext = v.InferOutput<typeof HostContextSchema>
 
 // added and modified handlers should always handle the case where there is no state
 // that is, it should handle any potential errors that may occur when the value already exists
 // e.g. say brew throws an error if the package is already installed, we would check if it's installed first in the added handler
 // idempotent
 
-interface BasePlugin {
-  name: string
-  update?: (ctx: HostContext) => AsyncOrSync<void>
-}
-
-interface StatelessPlugin extends BasePlugin {
-  check: (ctx: HostContext) => AsyncOrSync<boolean>
-  handle: (ctx: HostContext) => AsyncOrSync<void>
-}
-
-interface StatefulPlugin<T, D> extends BasePlugin {
-  current: (ctx: HostContext) => AsyncOrSync<T>
-  change: (ctx: HostContext, current: T) => AsyncOrSync<D | undefined>
-  handle: (ctx: HostContext, change: D) => AsyncOrSync<void>
-}
-
-type Plugin<T = unknown, D = unknown> = StatelessPlugin | StatefulPlugin<T, D>
-
-interface Optional<T> {
-  type: T
-}
-/*
-Case 1: No type argument (T = undefined)
-const plugin1: StatelessPluginFactory = () => ({ ... })
-plugin1() // ✅ OK
-
-Case 2: Optional argument (T = Options | undefined)
-const plugin2: StatelessPluginFactory<Options | undefined> = (options?) => ({ ... })
-plugin2() // ✅ OK
-plugin2({ some: 'option' }) // ✅ OK
-
-Case 3: Required argument (T = Options)
-const plugin3: StatelessPluginFactory<Options> = (options) => ({ ... })
-plugin3() // ❌ Error
-plugin3({ some: 'option' }) // ✅ OK
-*/
-type StatelessPluginFactory<T = undefined> = T extends undefined
-  ? () => StatelessPlugin
-  : T extends Optional<infer U>
-    ? (value?: U) => StatelessPlugin
-    : (value: T) => StatelessPlugin
-type StatefulPluginFactory<T, D> = (desired: T) => StatefulPlugin<T, D>
-
-interface HostConfig {
-  host: string
-  user?: string
-  port?: number
+const HostConfigSchema = v.strictObject({
+  host: v.string(),
+  user: v.optional(v.string()),
+  port: v.optional(v.number()),
+  plugins: v.array(PluginSchema),
+})
+// PluginSchema doesn't properly type the plugin functions, so we can't just infer the type for HostConfig
+type BaseHostConfig = v.InferOutput<typeof HostConfigSchema>
+type HostConfigWithoutPlugins = Omit<BaseHostConfig, "plugins">
+type HostConfig = HostConfigWithoutPlugins & {
   plugins: Plugin<any, any>[]
 }
 
-export type {
-  Optional,
-  HostConfig,
-  HostContext,
-  Plugin,
-  StatelessPluginFactory,
-  StatefulPluginFactory,
-  StatelessPlugin,
-  StatefulPlugin,
-}
+const BunInfraSchema = v.record(v.string(), HostConfigSchema)
+type BunInfraConfig = Record<string, HostConfig>
+
+export { BunInfraSchema, HostContextSchema }
+export type { HostContext, BunInfraConfig }

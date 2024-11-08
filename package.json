@@ -2,14 +2,23 @@
   "name": "bun-infra",
   "type": "module",
   "version": "0.0.1",
+  "exports": {
+    ".": "./src/index.ts",
+    "./types": "./src/types.ts",
+    "./types/plugin": "./src/plugin.ts"
+  },
+  "bin": {
+    "bun-infra": "./src/index.ts"
+  },
   "scripts": {
-    "lint": "tsc --noEmit && biome check --write . && eslint ."
+    "lint": "tsc --noEmit && biome check --write . && eslint .",
+    "compile": "bun build ./src/index.ts --compile --target=bun --minify --outfile=bun-infra && rm -f .*.bun-build"
   },
   "dependencies": {
     "cli-highlight": "^2.1.11",
     "figures": "^6.1.0",
     "signale": "^1.4.0",
-    "valibot": "^0.42.1"
+    "valibot": "v1.0.0-beta.3"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
