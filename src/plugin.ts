@@ -1,74 +1,52 @@
+import type { JsonValue, Jsonify } from "type-fest"
 import * as v from "valibot"
 import type { HostContext } from "./types.ts"
 
 type AsyncOrSync<T> = Promise<T> | T
 
-const BasePluginSchema = v.strictObject({
-  name: v.string(),
-  update: v.optional(v.function()),
-})
-interface BasePlugin {
+interface PluginDetails {
   name: string
+  /** @default true */
+  printDiff?: boolean
+}
+
+interface PluginHandlers<I extends JsonValue, D> {
+  diff: (ctx: HostContext, previous: I | undefined, input: I) => AsyncOrSync<D | undefined>
+  handle: (ctx: HostContext, diff: D, input: I) => AsyncOrSync<void>
   update?: (ctx: HostContext) => AsyncOrSync<void>
 }
 
-const StatelessPluginSchema = v.strictObject({
-  ...BasePluginSchema.entries,
-  check: v.function(),
+interface Plugin<I extends JsonValue = JsonValue, D = unknown> extends PluginHandlers<I, D> {
+  details: PluginDetails
+  input: () => AsyncOrSync<I>
+}
+const PluginSchema = v.strictObject({
+  details: v.strictObject({
+    name: v.string(),
+    printDiff: v.optional(v.boolean()),
+  }),
+  input: v.function(),
+  diff: v.function(),
   handle: v.function(),
+  update: v.optional(v.function()),
 })
-interface StatelessPlugin extends BasePlugin {
-  check: (ctx: HostContext) => AsyncOrSync<boolean>
-  handle: (ctx: HostContext) => AsyncOrSync<void>
-}
 
-const StatefulPluginSchema = v.strictObject({
-  ...BasePluginSchema.entries,
-  current: v.function(),
-  change: v.function(),
-  handle: v.function(),
-})
-interface StatefulPlugin<T, D> extends BasePlugin {
-  current: (ctx: HostContext) => AsyncOrSync<T>
-  change: (ctx: HostContext, current: T) => AsyncOrSync<D | undefined>
-  handle: (ctx: HostContext, change: D) => AsyncOrSync<void>
-}
+// If createPlugin is provided null for the first type argument, it means that the plugin does not accept an input.
+type PluginFactory<I extends JsonValue, D> = I extends null ? () => Plugin<I, D> : (input: I) => Plugin<I, D>
 
-const PluginSchema = v.union([StatelessPluginSchema, StatefulPluginSchema])
-type Plugin<T = unknown, D = unknown> = StatelessPlugin | StatefulPlugin<T, D>
+const createPlugin = <Input, Diff>(
+  details: PluginDetails,
+  handlers: PluginHandlers<Jsonify<Input>, Diff>,
+  transform?: (input: Jsonify<Input>) => AsyncOrSync<Jsonify<Input>>,
+): PluginFactory<Jsonify<Input>, Diff> =>
+  ((input?: Jsonify<Input>) => ({
+    details: {
+      ...details,
+      printDiff: details.printDiff ?? true,
+    },
+    input: async () => (input ? (transform ? await transform(input) : input) : null),
+    ...handlers,
+  })) as PluginFactory<Jsonify<Input>, Diff>
 
-interface Optional<T> {
-  type: T
-}
-/*
-Case 1: No type argument (T = undefined)
-const plugin1: StatelessPluginFactory = () => ({ ... })
-plugin1() // ✅ OK
-
-Case 2: Optional argument (T = Options | undefined)
-const plugin2: StatelessPluginFactory<Options | undefined> = (options?) => ({ ... })
-plugin2() // ✅ OK
-plugin2({ some: 'option' }) // ✅ OK
-
-Case 3: Required argument (T = Options)
-const plugin3: StatelessPluginFactory<Options> = (options) => ({ ... })
-plugin3() // ❌ Error
-plugin3({ some: 'option' }) // ✅ OK
-*/
-type StatelessPluginFactory<T = undefined> = T extends undefined
-  ? () => StatelessPlugin
-  : T extends Optional<infer U>
-    ? (value?: U) => StatelessPlugin
-    : (value: T) => StatelessPlugin
-type StatefulPluginFactory<T, D> = (desired: T) => StatefulPlugin<T, D>
-
-function isStatelessPlugin(plugin: Plugin): plugin is StatelessPlugin {
-  return v.is(StatelessPluginSchema, plugin)
-}
-
-function isStatefulPlugin(plugin: Plugin): plugin is StatefulPlugin<unknown, unknown> {
-  return v.is(StatefulPluginSchema, plugin)
-}
-
-export { PluginSchema, isStatelessPlugin, isStatefulPlugin }
-export type { Optional, Plugin, StatelessPluginFactory, StatefulPluginFactory, StatelessPlugin, StatefulPlugin }
+export { createPlugin, PluginSchema }
+export type { Plugin, PluginDetails, PluginFactory }

@@ -1,42 +1,50 @@
 #!/usr/bin/env bun
-import { highlight } from "cli-highlight"
-import figures from "figures"
-import signale from "signale"
+import util from "node:util"
+import type { JsonValue } from "type-fest"
 import * as v from "valibot"
-import {
-  type Plugin,
-  type StatefulPlugin,
-  type StatelessPlugin,
-  isStatefulPlugin,
-  isStatelessPlugin,
-} from "./plugin.ts"
+import { db } from "./db.ts"
+import { logger } from "./logger.ts"
+import type { Plugin, PluginDetails } from "./plugin.ts"
 import { BunInfraSchema, type HostContext, HostContextSchema } from "./types.ts"
+
 // TODO: plugin dependencies
-// TODO: better output for invalid config/plugin
-
-const logger = new signale.Signale({
-  scope: "bun-infra",
-  types: {
-    start: { label: "start", badge: figures.triangleRight, color: "magenta" },
-    statelessDone: { label: "already done", badge: figures.tick, color: "cyan" },
-    statefulDone: { label: "no change", badge: figures.tick, color: "cyan" },
-    change: { label: "change", badge: figures.triangleUp, color: "yellow" },
-  },
-})
-
-type Logger = typeof logger
 
 async function getConfig() {
   const configPath = `${process.cwd()}/bun-infra.config.ts`
   const configImport = (await import(configPath)) as { default: unknown }
   const result = v.safeParse(BunInfraSchema, configImport.default)
   if (!result.success) {
-    logger.fatal("Invalid config")
+    logger.fatal("Invalid config:")
+    for (const issue of result.issues) {
+      const path = v.getDotPath(issue) ?? ""
+      const pathParts = path.split(".")
+      const isPluginIssue = pathParts.length > 2 && pathParts[1] === "plugins"
+      const pluginName = isPluginIssue
+        ? (issue.input as { details?: PluginDetails } | undefined)?.details?.name
+        : undefined
+
+      let friendlyPath = path
+      if (pluginName) friendlyPath = `${path ? `${path} ` : ""}(${pluginName})`
+
+      const flatIssues = v.flatten(issue.issues ?? [issue])
+      const singleNestedIssue =
+        Object.keys(flatIssues.nested ?? {}).length === 1 ? flatIssues.nested?.[path] : undefined
+      const filteredIssues = [singleNestedIssue ?? flatIssues.nested, flatIssues.root, flatIssues.other].filter(Boolean)
+
+      const formattedIssues = filteredIssues.map(stringify)
+      const issuesMessage = formattedIssues.join("\n")
+      friendlyPath = friendlyPath && (issuesMessage.includes("\n") ? `${friendlyPath}:\n` : `${friendlyPath}: `)
+      console.warn(`${friendlyPath}${issuesMessage}`)
+    }
     process.exit(1)
   }
   const config = result.output
 
   return config
+}
+
+function stringify(value: unknown) {
+  return util.inspect(value, { depth: null, colors: true, maxArrayLength: null, maxStringLength: null })
 }
 
 async function main() {
@@ -64,10 +72,11 @@ async function main() {
     hostLogger.start()
 
     const result = v.safeParse(HostContextSchema, {
-      host: config[host]?.host,
+      host,
       user: "",
       arch: process.arch,
       os: process.platform,
+      logger: hostLogger,
     })
     if (!result.success) {
       hostLogger.fatal("Failed to build context for host")
@@ -82,12 +91,10 @@ async function main() {
     }
 
     for (const plugin of plugins as Plugin[]) {
-      const pluginLogger = hostLogger.scope(host, plugin.name)
+      const pluginLogger = hostLogger.scope(host, plugin.details.name)
+      context.logger = pluginLogger
       process.stdout.write("\n")
-      pluginLogger.start()
-
-      if (isStatelessPlugin(plugin)) await handleStatelessPlugin(plugin, context, pluginLogger)
-      else if (isStatefulPlugin(plugin)) await handleStatefulPlugin(plugin, context, pluginLogger)
+      await handlePlugin(plugin, context)
     }
 
     hostLogger.success()
@@ -96,37 +103,37 @@ async function main() {
   logger.success("Done!")
 }
 
-async function handleStatelessPlugin(plugin: StatelessPlugin, context: HostContext, pluginLogger: Logger) {
-  if (!(await plugin.check(context))) {
-    pluginLogger.statelessDone()
+async function updateState(host: string, pluginName: string, state: JsonValue) {
+  await db.update((data) => {
+    if (!data[host]) data[host] = {}
+    data[host][pluginName] = { state }
+  })
+}
+
+async function handlePlugin(plugin: Plugin, context: HostContext) {
+  const { host, logger: pluginLogger } = context
+
+  pluginLogger.start()
+  const input = await plugin.input()
+  const previous = db.data[host]?.[plugin.details.name]?.state
+  const diff = await plugin.diff(context, previous, input)
+  if (diff === undefined) {
+    pluginLogger.done()
+    await updateState(host, plugin.details.name, input)
     return
   }
 
-  await plugin.handle(context)
+  if (plugin.details.printDiff) pluginLogger.diff(getDiffString(diff))
+  else pluginLogger.diff()
+  await plugin.handle(context, diff, input)
+  await updateState(host, plugin.details.name, input)
   pluginLogger.success()
 }
 
-async function handleStatefulPlugin(
-  plugin: StatefulPlugin<unknown, unknown>,
-  context: HostContext,
-  pluginLogger: Logger,
-) {
-  const current = await plugin.current(context)
-  const change = await plugin.change(context, current)
-  if (change === undefined) {
-    pluginLogger.statefulDone()
-    return
-  }
-
-  pluginLogger.change(getChangeString(change))
-  await plugin.handle(context, change)
-  pluginLogger.success()
-}
-
-function getChangeString(change: unknown) {
-  const jsonString = JSON.stringify(change, null, 2)
-  const hasMultipleLines = jsonString.includes("\n")
-  return (hasMultipleLines ? "\n" : "") + highlight(jsonString)
+function getDiffString(diff: unknown) {
+  const diffString = stringify(diff)
+  const hasMultipleLines = diffString.includes("\n")
+  return (hasMultipleLines ? "\n" : "") + diffString
 }
 
 await main()

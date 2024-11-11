@@ -1,4 +1,5 @@
 import * as v from "valibot"
+import type { Logger } from "./logger.ts"
 import { type Plugin, PluginSchema } from "./plugin.ts"
 
 const HostContextSchema = v.strictObject({
@@ -6,6 +7,7 @@ const HostContextSchema = v.strictObject({
   user: v.string(),
   arch: v.string(),
   os: v.string(),
+  logger: v.custom<Logger>(() => true),
 })
 type HostContext = v.InferOutput<typeof HostContextSchema>
 
