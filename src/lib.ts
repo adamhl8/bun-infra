@@ -2,6 +2,13 @@ import { $ } from "bun"
 import untildify from "untildify"
 import type { Logger } from "./logger.ts"
 
+async function getSopsSecret(pathString: string) {
+  const keys = pathString.split(".").join("']['")
+  return (await $`sops -d --extract "['${{ raw: keys }}']" ${await resolvePath("./configs/secrets.yaml")}`.quiet())
+    .text()
+    .trim()
+}
+
 async function resolvePath(path: string) {
   const untildified = untildify(path)
   const rawPath = { raw: untildified }
@@ -25,4 +32,9 @@ function requestRestart(logger: Logger, message: string) {
   process.exit(EX_TEMPFAIL)
 }
 
-export { resolvePath, getAddedRemovedDiff, requestRestart }
+async function sudo(host: string) {
+  const sudoPassword = await getSopsSecret(`bun-infra.${host}.sudo_password`)
+  return { raw: `echo ${sudoPassword} | sudo -S -p '' --` }
+}
+
+export { resolvePath, getAddedRemovedDiff, requestRestart, getSopsSecret, sudo }

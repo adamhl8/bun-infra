@@ -8,6 +8,9 @@ const HostContextSchema = v.strictObject({
   arch: v.string(),
   os: v.string(),
   logger: v.custom<Logger>(() => true),
+  sudo: v.strictObject({
+    raw: v.string(),
+  }),
 })
 type HostContext = v.InferOutput<typeof HostContextSchema>
 

@@ -3,9 +3,11 @@ import util from "node:util"
 import type { JsonValue } from "type-fest"
 import * as v from "valibot"
 import { db } from "./db.ts"
+import { sudo } from "./lib.ts"
 import { logger } from "./logger.ts"
 import type { Plugin, PluginDetails } from "./plugin.ts"
 import { BunInfraSchema, type HostContext, HostContextSchema } from "./types.ts"
+import { continuep } from "./utils.ts"
 
 // TODO: plugin dependencies
 
@@ -77,6 +79,7 @@ async function main() {
       arch: process.arch,
       os: process.platform,
       logger: hostLogger,
+      sudo: await sudo(host),
     })
     if (!result.success) {
       hostLogger.fatal("Failed to build context for host")
@@ -84,13 +87,22 @@ async function main() {
     }
     const context = result.output
 
-    const plugins = config[host]?.plugins
+    const plugins = config[host]?.plugins as Plugin[] | undefined
     if (!plugins || plugins.length === 0) {
       hostLogger.warn("No plugins found for host")
       continue
     }
 
-    for (const plugin of plugins as Plugin[]) {
+    const pluginNames = new Set<string>()
+    for (const plugin of plugins) {
+      if (pluginNames.has(plugin.details.name)) {
+        hostLogger.fatal(`Duplicate plugin name found: ${plugin.details.name}`)
+        process.exit(1)
+      }
+      pluginNames.add(plugin.details.name)
+    }
+
+    for (const plugin of plugins) {
       const pluginLogger = hostLogger.scope(host, plugin.details.name)
       context.logger = pluginLogger
       process.stdout.write("\n")
@@ -125,6 +137,7 @@ async function handlePlugin(plugin: Plugin, context: HostContext) {
 
   if (plugin.details.printDiff) pluginLogger.diff(getDiffString(diff))
   else pluginLogger.diff()
+  if (!(await continuep())) return
   await plugin.handle(context, diff, input)
   await updateState(host, plugin.details.name, input)
   pluginLogger.success()
