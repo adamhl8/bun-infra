@@ -1,20 +1,20 @@
 #!/usr/bin/env bun
+import { rm } from "node:fs/promises"
 import util from "node:util"
 import type { JsonValue } from "type-fest"
 import * as v from "valibot"
 import { db } from "./db.ts"
+import { attempt, type error, fmtError } from "./errs.ts"
 import { sudo } from "./lib.ts"
 import { logger } from "./logger.ts"
 import type { Plugin, PluginDetails } from "./plugin.ts"
-import { BunInfraSchema, type HostContext, HostContextSchema } from "./types.ts"
+import { type BunInfraConfig, BunInfraSchema, type HostContext, HostContextSchema } from "./types.ts"
 import { continuep } from "./utils.ts"
 
 // TODO: plugin dependencies
 
-async function getConfig() {
-  const configPath = `${process.cwd()}/bun-infra.config.ts`
-  const configImport = (await import(configPath)) as { default: unknown }
-  const result = v.safeParse(BunInfraSchema, configImport.default)
+function getConfig(config: BunInfraConfig) {
+  const result = v.safeParse(BunInfraSchema, config)
   if (!result.success) {
     logger.fatal("Invalid config:")
     for (const issue of result.issues) {
@@ -40,16 +40,65 @@ async function getConfig() {
     }
     process.exit(1)
   }
-  const config = result.output
+  const validatedConfig = result.output
 
-  return config
+  return validatedConfig
 }
 
 function stringify(value: unknown) {
   return util.inspect(value, { depth: null, colors: true, maxArrayLength: null, maxStringLength: null })
 }
 
-async function main() {
+async function sesame(config: BunInfraConfig) {
+  if (process.env.SESAME_COMPILED === "TRUE") await main(config)
+  else {
+    const error = await bootstrap()
+    if (error) logger.fatal(fmtError("failed to bootstrap sesame", error))
+  }
+}
+
+async function bootstrap(): Promise<error> {
+  const sesameBinaryPath = `${process.cwd()}/sesame`
+
+  const [result, error] = attempt(() =>
+    Bun.spawnSync(
+      [
+        "bun",
+        "build",
+        `${process.cwd()}/sesame.ts`,
+        "--compile",
+        "--target=bun",
+        "--minify",
+        `--outfile=${sesameBinaryPath}`,
+      ],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    ),
+  )
+  if (error) return fmtError("failed to compile sesame binary", error)
+  if (result.exitCode !== 0) return fmtError("failed to compile sesame binary", result.stderr.toString().trim())
+
+  const [sesameResult, sesameError] = attempt(() =>
+    Bun.spawnSync([sesameBinaryPath, ...process.argv.slice(2)], {
+      env: { ...Bun.env, SESAME_COMPILED: "TRUE" },
+      stdin: "inherit",
+      stdout: "inherit",
+      stderr: "inherit",
+    }),
+  )
+  if (sesameError) return fmtError("failed to run sesame binary", sesameError)
+
+  // If the parent process is killed (e.g. via SIGINT), exitCode from the child process will be null since it's immediately killed
+  // ^Only relevant if we are capturing/handling the exit signal (which we aren't right now), otherwise this line is never reached anyway
+  // We propagate the exit code from the child process if there is one for whatever reason
+  if (sesameResult.exitCode) process.exitCode = sesameResult.exitCode
+
+  await rm(`${process.cwd()}/sesame`, { force: true })
+}
+
+async function main(sesameConfig: BunInfraConfig) {
   const hosts = process.argv.slice(2)
 
   if (hosts.length === 0) {
@@ -57,7 +106,7 @@ async function main() {
     process.exit(1)
   }
 
-  const config = await getConfig()
+  const config = getConfig(sesameConfig)
 
   for (const host of hosts) {
     if (!Object.hasOwn(config, host)) {
@@ -149,4 +198,4 @@ function getDiffString(diff: unknown) {
   return (hasMultipleLines ? "\n" : "") + diffString
 }
 
-await main()
+export { sesame }
